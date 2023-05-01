@@ -1,0 +1,10 @@
+{
+  "name": "dreef",
+  "version": "1.0.0",
+  "scripts": {
+    "watch": "shadow-cljs watch app"
+  },
+  "devDependencies": {
+    "shadow-cljs": "2.23.3"
+  }
+}
