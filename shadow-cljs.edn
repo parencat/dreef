@@ -2,7 +2,9 @@
  ["src/ui" "test/ui"]
 
  :dependencies
- []
+ [[funcool/rumext "v2-149"]
+  [funcool/okulary "2022.04.11-16"]
+  [applied-science/js-interop "0.4.2"]]
 
  :nrepl
  {:port 3333}
@@ -14,5 +16,5 @@
  {:app {:target     :browser
         :output-dir "resources/public/js"
         :asset-path "/js"
-        :modules    {:main {:init-fn dreef.core/start}}
-        :devtools   {:after-load otus.core/start}}}}
+        :modules    {:main {:entries [dreef.core]}}
+        :devtools   {:after-load dreef.core/mount}}}}
