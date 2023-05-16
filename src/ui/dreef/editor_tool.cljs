@@ -1,7 +1,7 @@
 (ns dreef.editor-tool
   (:require
    [rumext.v2 :as mf]
-   [dreef.tool :refer [tabs]]))
+   [dreef.tabs :refer [tabs]]))
 
 
 (mf/defc editor []

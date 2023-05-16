@@ -5,9 +5,31 @@
 
 (defonce state
   (ol/atom
-   {:layout {:left-pane   {:visible true}
-             :right-pane  {:visible true}
-             :bottom-pane {:visible true}}}))
+   {:pane-group {:root {:id       :root
+                        :type     :vertical
+                        :children [{:group 10} {:pane 3}]}
+
+                 10    {:id       10
+                        :type     :horizontal
+                        :parent   :root
+                        :children [{:pane 5} {:group 11}]}
+
+                 11    {:id       11
+                        :type     :vertical
+                        :parent   10
+                        :children [{:pane 4} {:pane 6}]}}
+
+    :pane       {4 {:id   4
+                    :view :editor-1}
+
+                 5 {:id   5
+                    :view :editor-2}
+
+                 6 {:id   6
+                    :view :editor-3}
+
+                 3 {:id   3
+                    :view :console}}}))
 
 
 (defn map-selector [selector]

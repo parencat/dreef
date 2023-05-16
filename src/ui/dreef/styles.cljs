@@ -37,6 +37,7 @@
          :fill    "currentColor"
          :display "block"
          :height  "1em"
-         :width   "1em"}
+         :width   "1em"
+         :style   {:font-size "1rem"}}
    [:path {:d     (get icons type)
            :color color}]])

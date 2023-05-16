@@ -1,4 +1,4 @@
-(ns dreef.tool
+(ns dreef.tabs
   (:require
    [rumext.v2 :as mf]
    [dreef.styles :refer [icon colors]]
