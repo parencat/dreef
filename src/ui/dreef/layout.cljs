@@ -1,8 +1,10 @@
 (ns dreef.layout
   (:require
    [rumext.v2 :as mf]
+   [potok.core :as ptk]
+   [beicon.core :as rx]
    [applied-science.js-interop :as j]
-   [dreef.state :refer [state subscribe]]
+   [dreef.state :refer [state subscribe emit!]]
    [dreef.styles :refer [colors]]
    [dreef.editor-tool :refer [editor]]
    ["ui-box" :default box]))
@@ -12,21 +14,17 @@
   (= type :vertical))
 
 
-(defn mouse-track [{:keys [group-ref gutter-type item-type item-id]} event]
+(defn mouse-track [{:keys [group-id gutter-type item-type item-id]} event]
   (j/call event :preventDefault)
-  (let [vertical?    (vertical? gutter-type)
-        element-rect (j/call-in group-ref [:current :getBoundingClientRect])
-        size         (if vertical?
-                       (* (min (max (- (j/get event :pageX) (j/get element-rect :left))
-                                    (+ (j/get element-rect :left) 40))
-                               (- (j/get element-rect :right) 40))
-                          (/ 100 (j/get element-rect :width)))
-
-                       (* (min (max (- (j/get event :pageY) (j/get element-rect :top))
-                                    (+ (j/get element-rect :top) 40))
-                               (- (j/get element-rect :bottom) 40))
-                          (/ 100 (j/get element-rect :height))))]
-    (swap! state update-in [item-type item-id] assoc :size size)))
+  (let [vertical? (vertical? gutter-type)
+        value     (if vertical?
+                    (j/get event :pageX)
+                    (j/get event :pageY))]
+    (emit! (ptk/data-event ::resize-pane
+                           {:group-id        group-id
+                            :item-type       item-type
+                            :item-id         item-id
+                            :gutter-position value}))))
 
 
 (defn gutter-mouse-down [gutter-props]
@@ -68,70 +66,93 @@
                                                  "translateY(-50%)")}}}]))
 
 
-(mf/defc pane [{:keys [pane-id size]}]
-  (let [{:keys [view width height]} (mf/deref (subscribe [:pane pane-id]))]
+(mf/defc view [{:keys [view-id]}]
+  (let [{view-component :component} (mf/deref (subscribe [:view view-id]))]
+    (case view-component
+      :editor [:& editor]
+      nil)))
+
+
+(mf/defc pane [{:keys [pane-id]}]
+  (let [{:keys [width height] view-id :view} (mf/deref (subscribe [:pane pane-id]))]
     [:> box {:data-pane   (str "pane-" pane-id)
              :overflow    "scroll"
              :flex-grow   0
              :flex-shrink 0
-             :flex-basis  (or size "100%")
              :style       {:width  width
                            :height height}}
-     (name view)]))
+     [:& view {:view-id view-id}]]))
 
 
 (defn ->group-items [children]
-  (let [default-item-size (/ 100 (count children))]
-    (loop [group                []
-           items                children
-           remaining-group-size 100]
-      (let [[child & rest] items
-            has-more? (seq rest)
-            item-size (cond (some? (:size child)) (:size child)
-                            (not has-more?) remaining-group-size
-                            :otherwise default-item-size)
-            pane?     (some? (:pane child))
-            type      (if pane? :pane :pane-group)
-            group     (cond-> group
-                        :always (conj {:type type
-                                       :item child
-                                       :size (str item-size "%")})
-                        has-more? (conj {:type :gutter
-                                         :item {:item-type type
-                                                :item-id   (or (:pane child) (:group child))}}))]
-        (if has-more?
-          (recur group rest (- remaining-group-size item-size))
-          group)))))
+  (loop [group []
+         items children]
+    (let [[child & rest] items
+          has-more? (seq rest)
+          pane?     (some? (:pane child))
+          type      (if pane? :pane :pane-group)
+          group     (cond-> group
+                      :always (conj {:type type
+                                     :item child})
+                      has-more? (conj {:type :gutter
+                                       :item {:item-type type
+                                              :item-id   (or (:pane child) (:group child))}}))]
+      (if has-more?
+        (recur group rest)
+        group))))
 
 
-(defn pane-group-state [group-id]
-  (subscribe
-   (fn [state]
-     (let [group    (get-in state [:pane-group group-id])
-           children (map
-                     (fn [{:keys [group pane] :as child}]
-                       (if (some? group)
-                         (assoc child :size (get-in state [:pane-group group :size]))
-                         (assoc child :size (get-in state [:pane pane :size]))))
-                     (:children group))]
-       {:type     (:type group)
-        :children children}))))
+(defn set-group-items-dimensions [group-id item-props]
+  (ptk/reify ::set-group-items-dimensions
+    ptk/UpdateEvent
+    (update [_ state]
+     ;; get group from state
+     ;; get all group items
+     ;; set new dims for specified item
+     ;; calculate rest items sizes
+     ;; return new state
+      (update-in state [:pane-group group-id] assoc :prp "dimensions"))))
 
 
-(mf/defc render-group [{:keys [group-id size]}]
-  (let [{:keys [type children]} (mf/deref (pane-group-state group-id))
+(defn set-group-dimensions [group-id dimensions unmount]
+  (ptk/reify ::set-group-dimensions
+    ptk/UpdateEvent
+    (update [_ state]
+     ;; get group from state
+     ;; get all group items
+     ;; calculate items size
+     ;; return new state
+      (update-in state [:pane-group group-id] merge dimensions))
+
+    ptk/WatchEvent
+    (watch [_ state stream]
+      (->> stream
+           (rx/filter #(and (ptk/type? ::resize-pane %)
+                            (-> % deref :group-id (= group-id))))
+           (rx/map #(println "new value is" (-> % deref :group-id)))
+           ;;(rx/map #(set-group-items-dimensions group-id (unchecked-get % "data")))
+           (rx/take-until unmount)))))
+
+
+(mf/defc render-group [{:keys [group-id]}]
+  (let [{:keys [type children width height]} (mf/deref (subscribe [:pane-group group-id]))
         group-ref   (mf/use-ref)
         vertical?   (vertical? type)
         group-items (->group-items children)]
 
     (mf/use-layout-effect
      (fn []
-       (let [element-rect (j/call-in group-ref [:current :getBoundingClientRect])]
-         (swap! state update-in [:pane-group group-id] assoc
-                :left (j/get element-rect :left)
-                :top (j/get element-rect :top)
-                :width (j/get element-rect :width)
-                :height (j/get element-rect :height)))))
+       (let [element-rect (j/call-in group-ref [:current :getBoundingClientRect])
+             dimensions   {:top    (j/get element-rect :top)
+                           :left   (j/get element-rect :left)
+                           :right  (j/get element-rect :right)
+                           :bottom (j/get element-rect :bottom)
+                           :width  (j/get element-rect :width)
+                           :height (j/get element-rect :height)}
+             unmount      (rx/subject)]
+         (emit! (set-group-dimensions group-id dimensions unmount))
+         ;; unmount  callback
+         #(rx/push! unmount true))))
 
     [:> box {:key            group-id
              :ref            group-ref
@@ -140,21 +161,21 @@
              :flex-direction (if vertical? "column" "row")
              :flex-grow      0
              :flex-shrink    0
-             :flex-basis     (or size "100%")}
-     (for [{:keys [type item size]} group-items]
+             :style          {:width  width
+                              :height height}}
+     (for [{:keys [type item]} group-items]
        (case type
          :pane
          [:& pane {:key     (:pane item)
-                   :pane-id (:pane item)
-                   :size    size}]
+                   :pane-id (:pane item)}]
          :pane-group
          [:& render-group {:key      (:group item)
-                           :group-id (:group item)
-                           :size     size}]
+                           :group-id (:group item)}]
          :gutter
          [:& gutter {:key         (str "gutter-for" (:item-id item))
-                     :gutter-type (if vertical? :horizontal :vertical)
                      :group-ref   group-ref
+                     :group-id    group-id
+                     :gutter-type (if vertical? :horizontal :vertical)
                      :item-type   (:item-type item)
                      :item-id     (:item-id item)}]))]))
 

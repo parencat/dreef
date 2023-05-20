@@ -1,9 +1,11 @@
 {:source-paths
- ["src/ui" "test/ui"]
+ ["src/ui" "test/ui" "src/vendor"]
 
  :dependencies
  [[funcool/rumext "v2-149"]
   [funcool/okulary "2022.04.11-16"]
+  [funcool/potok "2022.12.16-71"]
+  [funcool/beicon "2021.07.05-1"]
   [applied-science/js-interop "0.4.2"]]
 
  :nrepl
