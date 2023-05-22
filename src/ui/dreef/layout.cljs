@@ -14,6 +14,47 @@
   (= type :vertical))
 
 
+(defn calculate-group-layout [state group-id {:keys [width height] :as dimensions}]
+  (let [{:keys [type children]} (get-in state [:pane-group group-id])
+        items-count    (count children)
+        prop           (if (vertical? type) :height :width)
+        group-size     (get dimensions prop)
+        item-size      (Math/floor (/ group-size items-count))
+        last-item      (last children)
+        last-item-size (+ (- group-size
+                             (* items-count item-size))
+                          item-size)]
+    (-> state
+        (update-in [:pane-group group-id] merge {:width width :height height})
+        (as-> $
+              (reduce
+               (fn [s item]
+                 (let [size      (if (= item last-item) last-item-size item-size)
+                       item-dims (assoc {:width width :height height} prop size)]
+                   (if-some [pane-id (:pane item)]
+                     (update-in s [:pane pane-id] merge item-dims)
+                     (calculate-group-layout s (:group item) item-dims))))
+               $ children)))))
+
+
+(defn ->group-items [children]
+  (loop [group []
+         items children]
+    (let [[child & rest] items
+          has-more? (seq rest)
+          pane?     (some? (:pane child))
+          type      (if pane? :pane :pane-group)
+          group     (cond-> group
+                      :always (conj {:type type
+                                     :item child})
+                      has-more? (conj {:type :gutter
+                                       :item {:item-type type
+                                              :item-id   (or (:pane child) (:group child))}}))]
+      (if has-more?
+        (recur group rest)
+        group))))
+
+
 (defn mouse-track [{:keys [group-id gutter-type item-type item-id]} event]
   (j/call event :preventDefault)
   (let [vertical? (vertical? gutter-type)
@@ -79,27 +120,9 @@
              :overflow    "scroll"
              :flex-grow   0
              :flex-shrink 0
-             :style       {:width  width
-                           :height height}}
+             :style       {:width  (str width "px")
+                           :height (str height "px")}}
      [:& view {:view-id view-id}]]))
-
-
-(defn ->group-items [children]
-  (loop [group []
-         items children]
-    (let [[child & rest] items
-          has-more? (seq rest)
-          pane?     (some? (:pane child))
-          type      (if pane? :pane :pane-group)
-          group     (cond-> group
-                      :always (conj {:type type
-                                     :item child})
-                      has-more? (conj {:type :gutter
-                                       :item {:item-type type
-                                              :item-id   (or (:pane child) (:group child))}}))]
-      (if has-more?
-        (recur group rest)
-        group))))
 
 
 (defn set-group-items-dimensions [group-id item-props]
@@ -114,16 +137,8 @@
       (update-in state [:pane-group group-id] assoc :prp "dimensions"))))
 
 
-(defn set-group-dimensions [group-id dimensions unmount]
+(defn calc-group-layout-on-resize [group-id unmount]
   (ptk/reify ::set-group-dimensions
-    ptk/UpdateEvent
-    (update [_ state]
-     ;; get group from state
-     ;; get all group items
-     ;; calculate items size
-     ;; return new state
-      (update-in state [:pane-group group-id] merge dimensions))
-
     ptk/WatchEvent
     (watch [_ state stream]
       (->> stream
@@ -136,33 +151,25 @@
 
 (mf/defc render-group [{:keys [group-id]}]
   (let [{:keys [type children width height]} (mf/deref (subscribe [:pane-group group-id]))
-        group-ref   (mf/use-ref)
         vertical?   (vertical? type)
         group-items (->group-items children)]
 
-    (mf/use-layout-effect
+    (mf/use-effect
      (fn []
-       (let [element-rect (j/call-in group-ref [:current :getBoundingClientRect])
-             dimensions   {:top    (j/get element-rect :top)
-                           :left   (j/get element-rect :left)
-                           :right  (j/get element-rect :right)
-                           :bottom (j/get element-rect :bottom)
-                           :width  (j/get element-rect :width)
-                           :height (j/get element-rect :height)}
-             unmount      (rx/subject)]
-         (emit! (set-group-dimensions group-id dimensions unmount))
+       (let [unmount (rx/subject)]
+         (emit! (calc-group-layout-on-resize group-id unmount))
          ;; unmount  callback
          #(rx/push! unmount true))))
 
+    (println group-id width height)
     [:> box {:key            group-id
-             :ref            group-ref
              :data-group     (str "group-" group-id)
              :display        "flex"
              :flex-direction (if vertical? "column" "row")
              :flex-grow      0
              :flex-shrink    0
-             :style          {:width  width
-                              :height height}}
+             :style          {:width  (str width "px")
+                              :height (str height "px")}}
      (for [{:keys [type item]} group-items]
        (case type
          :pane
@@ -173,14 +180,34 @@
                            :group-id (:group item)}]
          :gutter
          [:& gutter {:key         (str "gutter-for" (:item-id item))
-                     :group-ref   group-ref
                      :group-id    group-id
                      :gutter-type (if vertical? :horizontal :vertical)
                      :item-type   (:item-type item)
                      :item-id     (:item-id item)}]))]))
 
 
+(defn calculate-full-layout [{:keys [width height]}]
+  (ptk/reify ::set-group-dimensions
+    ptk/UpdateEvent
+    (update [_ state]
+      (calculate-group-layout state :root {:width width :height height}))))
+
+
 (mf/defc layout-manager []
-  [:> box {:height  "100%"
-           :display "flex"}
-   [:& render-group {:group-id :root}]])
+  (let [el-ref (mf/use-ref)
+        ready? (mf/use-state false)]
+
+    (mf/use-layout-effect
+     (fn []
+       (let [element-rect (j/call-in el-ref [:current :getBoundingClientRect])
+             width        (j/get element-rect :width)
+             height       (j/get element-rect :height)]
+         ;; weird thing if state update happens in between the render cycles components wouldn't react on it
+         (emit! (calculate-full-layout {:width width :height height}))
+         (swap! ready? true))))
+
+    [:> box {:ref     el-ref
+             :height  "100%"
+             :display "flex"}
+     (when @ready?
+       [:& render-group {:group-id :root}])]))
