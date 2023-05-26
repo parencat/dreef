@@ -70,7 +70,7 @@
                                     edge (+ current-edge delta))]
                 (if (= item-type :pane)
                   new-state
-                  (shrink-items-prop new-state (:pane-group item) prop edge percent))))
+                  (shrink-items-prop new-state item-id prop edge percent))))
             state
             children)))
 
