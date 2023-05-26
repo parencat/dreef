@@ -4,7 +4,7 @@
    [potok.core :as ptk]
    [beicon.core :as rx]
    [applied-science.js-interop :as j]
-   [dreef.state :refer [state subscribe emit!]]
+   [dreef.state :refer [subscribe emit!]]
    [dreef.styles :refer [colors]]
    [dreef.editor-tool :refer [editor]]
    ["ui-box" :default box]))
@@ -14,27 +14,112 @@
   (= type :vertical))
 
 
-(defn calculate-group-layout [state group-id {:keys [width height] :as dimensions}]
+(defn calculate-group-layout [state group-id {:keys [width height left right top bottom] :as dimensions}]
   (let [{:keys [type children]} (get-in state [:pane-group group-id])
         items-count    (count children)
-        prop           (if (vertical? type) :height :width)
+        vertical?      (vertical? type)
+        prop           (if vertical? :height :width)
         group-size     (get dimensions prop)
         item-size      (Math/floor (/ group-size items-count))
-        last-item      (last children)
         last-item-size (+ (- group-size
                              (* items-count item-size))
-                          item-size)]
-    (-> state
-        (update-in [:pane-group group-id] merge {:width width :height height})
-        (as-> $
-              (reduce
-               (fn [s item]
-                 (let [size      (if (= item last-item) last-item-size item-size)
-                       item-dims (assoc {:width width :height height} prop size)]
-                   (if-some [pane-id (:pane item)]
-                     (update-in s [:pane pane-id] merge item-dims)
-                     (calculate-group-layout s (:group item) item-dims))))
-               $ children)))))
+                          item-size)
+        state          (update-in state [:pane-group group-id] merge dimensions)]
+
+    (loop [s      state
+           items  children
+           coords {:left left :top top}]
+      (let [item       (first items)
+            rest-items (rest items)
+            size       (if (seq rest-items) item-size last-item-size)
+            item-dims  (cond-> {:width width :height height}
+                         :always (assoc prop size)
+                         vertical? (assoc :top (:top coords)
+                                          :bottom (+ (:top coords) size)
+                                          :left left
+                                          :right right)
+                         (not vertical?) (assoc :left (:left coords)
+                                                :right (+ (:left coords) size)
+                                                :top top
+                                                :bottom bottom))
+            new-coords (if vertical?
+                         (update coords :top + size)
+                         (update coords :left + size))
+            new-state  (if-some [pane-id (:pane item)]
+                         (update-in s [:pane pane-id] merge item-dims)
+                         (calculate-group-layout s (:pane-group item) item-dims))]
+        (if-not (seq rest-items)
+          new-state
+          (recur new-state
+                 rest-items
+                 new-coords))))))
+
+
+(defn shrink-items-prop [state group-id prop edge percent]
+  (let [{:keys [children]} (get-in state [:pane-group group-id])]
+    (reduce (fn [s item]
+              (let [item-type     (if (some? (:pane item)) :pane :pane-group)
+                    item-id       (get item item-type)
+                    item-props    (get-in s [item-type item-id])
+                    current-value (get item-props prop)
+                    current-edge  (get item-props edge)
+                    new-value     (/ (* current-value percent) 100)
+                    delta         (- new-value current-value)
+                    new-state     (update-in s [item-type item-id] assoc
+                                    prop new-value
+                                    edge (+ current-edge delta))]
+                (if (= item-type :pane)
+                  new-state
+                  (shrink-items-prop new-state (:pane-group item) prop edge percent))))
+            state
+            children)))
+
+
+(defn calculate-items-layout [state group-id item-type item-id gutter-position]
+  (let [{:keys [type children] :as group} (get-in state [:pane-group group-id])
+        vertical?      (vertical? type)
+        item           (get-in state [item-type item-id])
+        item-edge      (if vertical? :bottom :right)
+
+        [_ next-item] (drop-while #(not= (get % item-type) item-id) children)
+        next-item-type (if (some? (:pane next-item)) :pane :pane-group)
+        next-item-id   (get next-item next-item-type)
+        next-item-edge (if (= item-edge :right) :left :top)
+        next-item      (get-in state [next-item-type next-item-id])
+
+        delta          (- (get item item-edge) gutter-position)
+        current-next   #{item-id next-item-id}
+        change-prop    (if vertical? :height :width)
+
+        group-size     (get group change-prop)
+        item-size      (get item change-prop)
+        next-item-size (get next-item change-prop)
+
+        rest-width     (->> children
+                            (filter #(not (contains? current-next (or (:pane %) (:pane-group %)))))
+                            (map #(let [id   (or (:pane %) (:pane-group %))
+                                        type (if (some? (:pane %)) :pane :pane-group)]
+                                    (get-in state [type id change-prop])))
+                            (reduce +))
+
+        change-val     (min (max 100 (- item-size delta))
+                            (- group-size rest-width 100))
+
+        next-item-val  (max 100 (min (+ next-item-size delta)
+                                     (- group-size rest-width 100)))
+
+        item-edge-val  (+ (get item next-item-edge) change-val)
+
+        item-dims      (assoc item change-prop change-val
+                                   item-edge item-edge-val)
+        next-item-dims (assoc next-item change-prop next-item-val
+                                        next-item-edge item-edge-val)]
+
+    (cond-> state
+      :always (update-in [item-type item-id] merge item-dims)
+      :always (update-in [next-item-type next-item-id] merge next-item-dims)
+      (= item-type :pane-group) (shrink-items-prop item-id change-prop item-edge (/ (* change-val 100) item-size))
+      (= next-item-type :pane-group) (shrink-items-prop next-item-id change-prop item-edge (/ (* next-item-val 100) next-item-size)))))
 
 
 (defn ->group-items [children]
@@ -49,7 +134,7 @@
                                      :item child})
                       has-more? (conj {:type :gutter
                                        :item {:item-type type
-                                              :item-id   (or (:pane child) (:group child))}}))]
+                                              :item-id   (or (:pane child) (:pane-group child))}}))]
       (if has-more?
         (recur group rest)
         group))))
@@ -125,16 +210,11 @@
      [:& view {:view-id view-id}]]))
 
 
-(defn set-group-items-dimensions [group-id item-props]
+(defn set-group-items-dimensions [{:keys [group-id item-type item-id gutter-position]}]
   (ptk/reify ::set-group-items-dimensions
     ptk/UpdateEvent
     (update [_ state]
-     ;; get group from state
-     ;; get all group items
-     ;; set new dims for specified item
-     ;; calculate rest items sizes
-     ;; return new state
-      (update-in state [:pane-group group-id] assoc :prp "dimensions"))))
+      (calculate-items-layout state group-id item-type item-id gutter-position))))
 
 
 (defn calc-group-layout-on-resize [group-id unmount]
@@ -144,8 +224,7 @@
       (->> stream
            (rx/filter #(and (ptk/type? ::resize-pane %)
                             (-> % deref :group-id (= group-id))))
-           (rx/map #(println "new value is" (-> % deref :group-id)))
-           ;;(rx/map #(set-group-items-dimensions group-id (unchecked-get % "data")))
+           (rx/map #(set-group-items-dimensions (deref %)))
            (rx/take-until unmount)))))
 
 
@@ -161,7 +240,6 @@
          ;; unmount  callback
          #(rx/push! unmount true))))
 
-    (println group-id width height)
     [:> box {:key            group-id
              :data-group     (str "group-" group-id)
              :display        "flex"
@@ -176,8 +254,8 @@
          [:& pane {:key     (:pane item)
                    :pane-id (:pane item)}]
          :pane-group
-         [:& render-group {:key      (:group item)
-                           :group-id (:group item)}]
+         [:& render-group {:key      (:pane-group item)
+                           :group-id (:pane-group item)}]
          :gutter
          [:& gutter {:key         (str "gutter-for" (:item-id item))
                      :group-id    group-id
@@ -186,11 +264,11 @@
                      :item-id     (:item-id item)}]))]))
 
 
-(defn calculate-full-layout [{:keys [width height]}]
+(defn calculate-full-layout [dimensions]
   (ptk/reify ::set-group-dimensions
     ptk/UpdateEvent
     (update [_ state]
-      (calculate-group-layout state :root {:width width :height height}))))
+      (calculate-group-layout state :root dimensions))))
 
 
 (mf/defc layout-manager []
@@ -201,9 +279,13 @@
      (fn []
        (let [element-rect (j/call-in el-ref [:current :getBoundingClientRect])
              width        (j/get element-rect :width)
-             height       (j/get element-rect :height)]
+             height       (j/get element-rect :height)
+             left         (j/get element-rect :left)
+             right        (j/get element-rect :right)
+             top          (j/get element-rect :top)
+             bottom       (j/get element-rect :bottom)]
          ;; weird thing if state update happens in between the render cycles components wouldn't react on it
-         (emit! (calculate-full-layout {:width width :height height}))
+         (emit! (calculate-full-layout {:width width :height height :left left :right right :top top :bottom bottom}))
          (swap! ready? true))))
 
     [:> box {:ref     el-ref

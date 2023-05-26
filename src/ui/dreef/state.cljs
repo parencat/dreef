@@ -18,12 +18,12 @@
    {:state
     {:pane-group {:root {:id       :root
                          :type     :vertical
-                         :children [{:group 10} {:group 12}]}
+                         :children [{:pane-group 10} {:pane-group 12}]}
 
                   10    {:id       10
                          :type     :horizontal
                          :parent   :root
-                         :children [{:pane 5} {:group 11}]}
+                         :children [{:pane 5} {:pane-group 11}]}
 
                   11    {:id       11
                          :type     :vertical
