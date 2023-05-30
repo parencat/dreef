@@ -46,10 +46,11 @@
                                       (some? new-item-size)
                                       (some? current-size))
                                  (max min-pane-size
-                                      (- current-size (/ new-item-size items-count)))
+                                      (- current-size (/ new-item-size (dec items-count))))
 
                                  (and (= (:id new-item) item-id)
-                                      (some? current-size))
+                                      (some? current-size)
+                                      (not= items-count 1))
                                  current-size
 
                                  (seq rest-items) item-size
@@ -99,9 +100,33 @@
                              :height (:height group-props))
         dimensions         (select-keys parent-group [:width :height :left :right :top :bottom])]
     (-> state
-        (update :pane-group assoc group-id group)
-        (update-in [:pane-group parent] assoc :children new-children)
+        (assoc-in [:pane-group group-id] group)
+        (assoc-in [:pane-group parent :children] new-children)
         (calculate-group-layout (:id parent-group) dimensions :new-item group))))
+
+
+(defn remove-child-by-id [children type id]
+  (remove
+   (fn [child]
+     (let [child-id (get child type)]
+       (= child-id id)))
+   children))
+
+
+(defn handle-remove-pane-group [state group-id]
+  (let [{:keys [parent children]} (get-in state [:pane-group group-id])]
+    (-> state
+        (update :pane-group dissoc group-id)
+        (update-in [:pane-group parent :children] remove-child-by-id :pane-group group-id)
+        (as-> $
+          (reduce
+           (fn [s child]
+             (let [child-type (if (some? (:pane child)) :pane :pane-group)
+                   child-id   (get child child-type)]
+               (if (= child-type :pane)
+                 (update s :pane dissoc child-id)
+                 (handle-remove-pane-group s child-id))))
+           $ children)))))
 
 
 (defn shrink-items-prop [state group-id prop edge percent]
@@ -249,11 +274,16 @@
       (handle-add-pane-group state group-props))))
 
 
-(defn remove-pane-group []
+(defn remove-pane-group [group-id]
   (ptk/reify ::remove-pane-group
     ptk/UpdateEvent
     (update [_ state]
-      state)))
+      (let [{:keys [parent]} (get-in state [:pane-group group-id])
+            dimensions (-> (get-in state [:pane-group parent])
+                           (select-keys [:width :height :left :right :top :bottom]))]
+        (-> state
+            (handle-remove-pane-group group-id)
+            (calculate-group-layout parent dimensions))))))
 
 
 (defn add-pane []
@@ -399,5 +429,12 @@
 
  (emit! (add-pane-group
          {:type   :horizontal
-          :width  200
-          :parent 1})))
+          :width  600
+          :parent 1}))
+
+ (emit! (add-pane-group
+         {:type   :horizontal
+          :width  400
+          :parent 1}))
+
+ (emit! (remove-pane-group 6)))
