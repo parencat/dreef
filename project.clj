@@ -17,6 +17,7 @@
   :main ^:skip-aot dreef.main
   :source-paths ["src/service"]
   :resource-paths ["resources" "target/resources"]
+  :test-paths ["test/service"]
 
   :profiles
   {:dev     {:source-paths   ["dev/src"]

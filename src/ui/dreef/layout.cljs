@@ -129,23 +129,60 @@
            $ children)))))
 
 
-(defn shrink-items-prop [state group-id prop edge percent]
-  (let [{:keys [children]} (get-in state [:pane-group group-id])]
+(defn handle-add-pane [state {:keys [pane-id parent order view]
+                              :or   {pane-id (get-next-id)}}]
+  (let [group             (get-in state [:pane-group parent])
+        group-child-count (count (:children group))
+        order             (if (and (some? order)
+                                   (< order group-child-count))
+                            order
+                            group-child-count)
+        new-children      (-> (concat (take order (:children group))
+                                      [{:pane pane-id}]
+                                      (drop order (:children group)))
+                              vec)
+        pane              {:id     pane-id
+                           :view   view
+                           :parent parent}
+        dimensions        (select-keys group [:width :height :left :right :top :bottom])]
+    (-> state
+        (assoc-in [:pane pane-id] pane)
+        (assoc-in [:pane-group parent :children] new-children)
+        (calculate-group-layout parent dimensions :new-item pane))))
+
+
+(defn shrink-items-prop [state group-id prop edge edge-fn percent change-opposite-edge?]
+  (let [{:keys [children] :as group} (get-in state [:pane-group group-id])
+        first-child (first children)
+        last-child  (last children)]
     (reduce (fn [s item]
-              (let [item-type     (if (some? (:pane item)) :pane :pane-group)
-                    item-id       (get item item-type)
-                    item-props    (get-in s [item-type item-id])
-                    current-value (get item-props prop)
-                    current-edge  (get item-props edge)
-                    new-value     (/ (* current-value percent)
-                                     min-pane-size)
-                    delta         (- new-value current-value)
-                    new-state     (update-in s [item-type item-id] assoc
-                                    prop new-value
-                                    edge (+ current-edge delta))]
+              (let [item-type             (if (some? (:pane item)) :pane :pane-group)
+                    item-id               (get item item-type)
+                    item-props            (get-in s [item-type item-id])
+                    current-value         (get item-props prop)
+                    current-edge          (get item-props edge)
+                    opposite-edge         (case edge
+                                            :top :bottom
+                                            :bottom :top
+                                            :left :right
+                                            :right :left)
+                    current-opposite-edge (get item-props opposite-edge)
+                    new-value             (/ (* current-value percent)
+                                             100)
+                    delta                 (- new-value current-value)
+                    opposite-edge-new-val (if (or (= item last-child)
+                                                  (not change-opposite-edge?))
+                                            current-opposite-edge
+                                            (edge-fn current-opposite-edge delta))
+                    new-state             (update-in s [item-type item-id] assoc
+                                            prop new-value
+                                            edge (if (= item first-child)
+                                                   (get group edge)
+                                                   (edge-fn current-edge delta))
+                                            opposite-edge opposite-edge-new-val)]
                 (if (= item-type :pane)
                   new-state
-                  (shrink-items-prop new-state item-id prop edge percent))))
+                  (shrink-items-prop new-state item-id prop edge edge-fn percent true))))
             state
             children)))
 
@@ -159,7 +196,7 @@
         [_ next-item] (drop-while #(not= (get % item-type) item-id) children)
         next-item-type (if (some? (:pane next-item)) :pane :pane-group)
         next-item-id   (get next-item next-item-type)
-        next-item-edge (if (= item-edge :right) :left :top)
+        next-item-edge (if vertical? :top :left)
         next-item      (get-in state [next-item-type next-item-id])
 
         delta          (- (get item item-edge) gutter-position)
@@ -194,8 +231,8 @@
     (cond-> state
       :always (update-in [item-type item-id] merge item-dims)
       :always (update-in [next-item-type next-item-id] merge next-item-dims)
-      (= item-type :pane-group) (shrink-items-prop item-id change-prop item-edge (/ (* change-val 100) item-size))
-      (= next-item-type :pane-group) (shrink-items-prop next-item-id change-prop item-edge (/ (* next-item-val 100) next-item-size)))))
+      (= item-type :pane-group) (shrink-items-prop item-id change-prop item-edge + (/ (* change-val 100) item-size) false)
+      (= next-item-type :pane-group) (shrink-items-prop next-item-id change-prop next-item-edge - (/ (* next-item-val 100) next-item-size) false))))
 
 
 (defn ->group-items [children]
@@ -286,11 +323,11 @@
             (calculate-group-layout parent dimensions))))))
 
 
-(defn add-pane []
+(defn add-pane [pane-props]
   (ptk/reify ::add-pane
     ptk/UpdateEvent
     (update [_ state]
-      state)))
+      (handle-add-pane state pane-props))))
 
 
 (defn remove-pane []
@@ -427,14 +464,26 @@
          {:type   :horizontal
           :parent :root}))
 
+ (emit! (add-pane
+         {:view   nil
+          :parent 2}))
+
  (emit! (add-pane-group
-         {:type   :horizontal
-          :width  600
-          :parent 1}))
+         {:type   :vertical
+          :parent 2}))
 
  (emit! (add-pane-group
          {:type   :horizontal
-          :width  400
-          :parent 1}))
+          :parent 2}))
 
- (emit! (remove-pane-group 6)))
+ (emit! (add-pane
+         {:view   nil
+          :parent 7}))
+
+ (emit! (set-group-items-dimensions
+         {:group-id        :root
+          :item-type       :pane-group
+          :item-id         1
+          :gutter-position 300}))
+
+ (emit! (remove-pane-group 1)))
