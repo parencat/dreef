@@ -151,6 +151,16 @@
         (calculate-group-layout parent dimensions :new-item pane))))
 
 
+(defn handle-remove-pane [state pane-id]
+  (let [{:keys [parent]} (get-in state [:pane pane-id])
+        group      (get-in state [:pane-group parent])
+        dimensions (select-keys group [:width :height :left :right :top :bottom])]
+    (-> state
+        (update :pane dissoc pane-id)
+        (update-in [:pane-group parent :children] remove-child-by-id :pane pane-id)
+        (calculate-group-layout parent dimensions))))
+
+
 (defn shrink-items-prop [state group-id prop edge edge-fn percent change-opposite-edge?]
   (let [{:keys [children] :as group} (get-in state [:pane-group group-id])
         first-child (first children)
@@ -330,11 +340,11 @@
       (handle-add-pane state pane-props))))
 
 
-(defn remove-pane []
+(defn remove-pane [pane-id]
   (ptk/reify ::remove-pane
     ptk/UpdateEvent
     (update [_ state]
-      state)))
+      (handle-remove-pane state pane-id))))
 
 
 (mf/defc gutter [{:keys [gutter-type] :as gutter-props}]
@@ -474,11 +484,11 @@
 
  (emit! (add-pane-group
          {:type   :horizontal
-          :parent 2}))
+          :parent 1}))
 
  (emit! (add-pane
          {:view   nil
-          :parent 7}))
+          :parent 4}))
 
  (emit! (set-group-items-dimensions
          {:group-id        :root
@@ -486,4 +496,6 @@
           :item-id         1
           :gutter-position 300}))
 
- (emit! (remove-pane-group 1)))
+ (emit! (remove-pane-group 1))
+
+ (emit! (remove-pane 3)))
