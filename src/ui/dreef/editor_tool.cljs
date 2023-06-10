@@ -4,13 +4,6 @@
    [dreef.tabs :refer [tabs]]))
 
 
-(mf/defc editor []
-  [:& tabs {:tabs [{:title "MyAwesomeThing" :active true}
-                   {:title "MyAwesomeThing1"}
-                   {:title "MyAwesomeThing2"}
-                   {:title "MyAwesomeThing3" :type :no-icon}
-                   {:title "MyAwesomeThing4"}
-                   {:title "MyAwesomeThing5" :type :no-icon}
-                   {:title "MyAwesomeThing6"}
-                   {:title "MyAwesomeThing7"}
-                   {:title "MyAwesomeThing8"}]}])
+(mf/defc editor [{:keys [view-id tabs-id]}]
+  [:& tabs {:tabs-id tabs-id
+            :view-id view-id}])

@@ -288,21 +288,21 @@
       #(j/call abort-controller :abort) #js {:signal abort-signal})))
 
 
-(defn set-group-items-dimensions [{:keys [group-id item-type item-id gutter-position]}]
+(defn set-group-items-dimensions-evt [{:keys [group-id item-type item-id gutter-position]}]
   (ptk/reify ::set-group-items-dimensions
     ptk/UpdateEvent
     (update [_ state]
       (calculate-items-layout state group-id item-type item-id gutter-position))))
 
 
-(defn calculate-full-layout [dimensions]
+(defn calculate-full-layout-evt [dimensions]
   (ptk/reify ::set-group-dimensions
     ptk/UpdateEvent
     (update [_ state]
       (calculate-group-layout state :root dimensions))))
 
 
-(defn calc-group-layout-on-resize [group-id unmount]
+(defn calc-group-layout-on-resize-evt [group-id unmount]
   (ptk/reify ::set-group-dimensions
     ptk/WatchEvent
     (watch [_ state stream]
@@ -310,18 +310,18 @@
            (rx/filter #(and (ptk/type? ::resize-pane %)
                             (-> % deref :group-id (= group-id))))
            (rx/debounce 5)
-           (rx/map #(set-group-items-dimensions (deref %)))
+           (rx/map #(set-group-items-dimensions-evt (deref %)))
            (rx/take-until unmount)))))
 
 
-(defn add-pane-group [group-props]
+(defn add-pane-group-evt [group-props]
   (ptk/reify ::add-pane-group
     ptk/UpdateEvent
     (update [_ state]
       (handle-add-pane-group state group-props))))
 
 
-(defn remove-pane-group [group-id]
+(defn remove-pane-group-evt [group-id]
   (ptk/reify ::remove-pane-group
     ptk/UpdateEvent
     (update [_ state]
@@ -333,18 +333,30 @@
             (calculate-group-layout parent dimensions))))))
 
 
-(defn add-pane [pane-props]
+(defn add-pane-evt [pane-props]
   (ptk/reify ::add-pane
     ptk/UpdateEvent
     (update [_ state]
       (handle-add-pane state pane-props))))
 
 
-(defn remove-pane [pane-id]
+(defn remove-pane-evt [pane-id]
   (ptk/reify ::remove-pane
     ptk/UpdateEvent
     (update [_ state]
       (handle-remove-pane state pane-id))))
+
+
+(defn add-view-evt [{:keys [view-id component tabs]
+                     :or       {view-id (get-next-id)}}]
+  (ptk/reify ::add-view
+    ptk/UpdateEvent
+    (update [_ state]
+      (-> state
+          (assoc-in [:view view-id]
+                    {:id        view-id
+                     :component component
+                     :tabs      tabs})))))
 
 
 (mf/defc gutter [{:keys [gutter-type] :as gutter-props}]
@@ -377,9 +389,10 @@
 
 
 (mf/defc view [{:keys [view-id]}]
-  (let [{view-component :component} (mf/deref (subscribe [:view view-id]))]
+  (let [{view-component :component :keys [tabs]} (mf/deref (subscribe [:view view-id]))]
     (case view-component
-      :editor [:& editor]
+      :editor [:& editor {:view-id view-id
+                          :tabs-id tabs}]
       nil)))
 
 
@@ -402,7 +415,7 @@
     (mf/use-effect
      (fn []
        (let [unmount (rx/subject)]
-         (emit! (calc-group-layout-on-resize group-id unmount))
+         (emit! (calc-group-layout-on-resize-evt group-id unmount))
          ;; unmount  callback
          #(rx/push! unmount true))))
 
@@ -444,7 +457,7 @@
              top          (j/get element-rect :top)
              bottom       (j/get element-rect :bottom)]
          ;; weird thing if state update happens in between the render cycles components wouldn't react on it
-         (emit! (calculate-full-layout {:width width :height height :left left :right right :top top :bottom bottom}))
+         (emit! (calculate-full-layout-evt {:width width :height height :left left :right right :top top :bottom bottom}))
          (swap! ready? true))))
 
     [:> box {:ref     el-ref
@@ -470,32 +483,58 @@
    {:id        31
     :component :editor})
 
- (emit! (add-pane-group
+ (emit! (add-pane-group-evt
          {:type   :horizontal
           :parent :root}))
 
- (emit! (add-pane
+ (emit! (add-pane-evt
          {:view   nil
           :parent 2}))
 
- (emit! (add-pane-group
+ (emit! (add-pane-group-evt
          {:type   :vertical
           :parent 2}))
 
- (emit! (add-pane-group
+ (emit! (add-pane-group-evt
          {:type   :horizontal
           :parent 1}))
 
- (emit! (add-pane
+ (emit! (add-pane-evt
          {:view   nil
           :parent 4}))
 
- (emit! (set-group-items-dimensions
+ (emit! (set-group-items-dimensions-evt
          {:group-id        :root
           :item-type       :pane-group
           :item-id         1
           :gutter-position 300}))
 
- (emit! (remove-pane-group 1))
+ (emit! (remove-pane-group-evt 1))
 
- (emit! (remove-pane 3)))
+ (emit! (remove-pane-evt 3))
+
+ (swap! dreef.state/state update-in [:pane 3] assoc :view 20)
+ (swap! dreef.state/state update-in [:view 20] assoc :id 20 :component :editor)
+
+ (require '[dreef.tabs])
+
+ (let [view-id  (get-next-id)
+       tabs-id  (get-next-id)
+       group-id (get-next-id)]
+   (emit!
+    (add-pane-group-evt {:type :horizontal
+                         :parent   :root})
+    (add-pane-group-evt {:type :horizontal
+                         :group-id group-id
+                         :parent   :root})
+    (add-view-evt {:view-id view-id
+                   :component   :editor
+                   :tabs        tabs-id})
+    (dreef.tabs/add-tabs-evt {:id  tabs-id
+                              :tabs    [{:title "MyAwesomeThing3" :type :no-icon}
+                                        {:title "MyAwesomeThing4"}
+                                        {:title "MyAwesomeThing5"}
+                                        {:title "MyAwesomeThing6"}]
+                              :view-id view-id})
+    (add-pane-evt {:view view-id
+                   :parent   group-id}))))
