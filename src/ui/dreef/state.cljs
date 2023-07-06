@@ -15,11 +15,20 @@
 (defonce state
   (ptk/store
    {:state
-    {:pane-group {:root {:id       :root
-                         :type     :vertical
-                         :children []}}
-     :pane       {}
-     :view       {}}}))
+    {:pane-group    {:root {:id       :root
+                            :type     :vertical
+                            :children []}}
+     :pane          {}
+
+     :view          {}
+     :active-view   nil
+
+     :tabs          {}
+
+     :editor        {}
+     :active-editor nil
+
+     :script        {}}}))
 
 
 (defn emit!

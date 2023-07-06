@@ -5,26 +5,33 @@
 
 
 (def colors
-  {:polar0  "#242933"
-   :polar1  "#2E3440"
-   :polar2  "#3B4252"
-   :polar3  "#434C5E"
-   :polar4  "#4C566A"
+  {:polar0     "#242933"
+   :polar0-0.4 "#24293366"
+   :polar1     "#2E3440"
+   :polar2     "#3B4252"
+   :polar3     "#434C5E"
+   :polar4     "#4C566A"
+   :polar5     "#2C313A"
+   :polar6     "#616E88"
 
-   :snow0   "#D8DEE9"
-   :snow1   "#E5E9F0"
-   :snow2   "#ECEFF4"
+   :snow0      "#D8DEE9"
+   :snow1      "#E5E9F0"
+   :snow2      "#ECEFF4"
 
-   :frost0  "#8FBCBB"
-   :frost1  "#88C0D0"
-   :frost2  "#81A1C1"
-   :frost3  "#5E81AC"
+   :frost0     "#8FBCBB"
+   :frost1     "#88C0D0"
+   :frost1-0.1 "#88C0D01A"
+   :frost2     "#81A1C1"
+   :frost3     "#5E81AC"
+   :frost4     "#72A1FF59"
+   :frost5     "#6199FF2F"
 
-   :aurora0 "#BF616A"
-   :aurora1 "#D08770"
-   :aurora2 "#EBCB8B"
-   :aurora3 "#A3BE8C"
-   :aurora4 "#B48EAD"})
+   :aurora0    "#BF616A"
+   :aurora1    "#D08770"
+   :aurora2    "#EBCB8B"
+   :aurora3    "#A3BE8C"
+   :aurora4    "#B48EAD"})
+
 
 
 (def icons

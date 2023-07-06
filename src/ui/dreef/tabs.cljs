@@ -2,67 +2,35 @@
   (:require
    [rumext.v2 :as mf]
    [potok.core :as ptk]
-   [applied-science.js-interop :as jsi]
+   [applied-science.js-interop :as j]
    [dreef.state :refer [emit! subscribe get-next-id]]
    [dreef.styles :refer [icon colors]]
+   [dreef.utils :as utils]
    ["ui-box" :default box]))
-
-
-(defn index-of [pred coll]
-  (let [[pred-key pred-val] (first pred)]
-    (reduce (fn [idx item]
-              (if (= (get item pred-key) pred-val)
-                (reduced idx)
-                (inc idx)))
-            0 coll)))
-
-
-(defn remove-nth [idx coll]
-  (-> (concat
-       (take idx coll)
-       (drop (inc idx) coll))
-      vec))
-
-
-(defn update-nth [idx update-fn coll]
-  (let [item (update-fn (get coll idx))]
-    (-> (concat
-         (take idx coll)
-         (list item)
-         (drop (inc idx) coll))
-        vec)))
-
-
-(defn insert-nth [idx item coll]
-  (-> (concat
-       (take idx coll)
-       (list item)
-       (drop idx coll))
-      vec))
 
 
 (defn ancestor? [child parent]
   (loop [p child]
-    (let [next-p (jsi/get p :parentElement)]
+    (let [next-p (j/get p :parentElement)]
       (cond
         (= p parent) true
         (some? next-p) (recur next-p)
         :otherwise false))))
 
 
-(defn select-tab-evt [id title]
+(defn select-tab-evt [{:keys [id tab]}]
   (ptk/reify ::select-tab
     ptk/UpdateEvent
     (update [_ state]
-      (assoc-in state [:tabs id :active] title))))
+      (assoc-in state [:tabs id :active] tab))))
 
 
-(defn close-tab-evt [id title]
+(defn close-tab-evt [{:keys [id tab]}]
   (ptk/reify ::close-tab
     ptk/UpdateEvent
     (update [_ state]
       (let [tabs      (get-in state [:tabs id :items])
-            tab-idx   (index-of {:title title} tabs)
+            tab-idx   (utils/index-of {:id tab} tabs)
             next-item (cond (>= (dec tab-idx) 0)
                             (->> (dec tab-idx) (get tabs) :title)
 
@@ -71,13 +39,13 @@
 
                             :otherwise nil)]
         (update-in state [:tabs id] assoc
-          :items (remove-nth tab-idx tabs)
-          :active next-item)))))
+                   :items (utils/remove-nth tab-idx tabs)
+                   :active next-item)))))
 
 
-(defn close-tab-click [tabs-id title event]
-  (jsi/call event :stopPropagation)
-  (emit! (close-tab-evt tabs-id title)))
+(defn close-tab-click [{:keys [tabs-id tab]} event]
+  (j/call event :stopPropagation)
+  (emit! (close-tab-evt {:id tabs-id :tab tab})))
 
 
 (defn add-tabs-evt [{:keys [id tabs view-id]}]
@@ -90,39 +58,46 @@
           (assoc-in [:view view-id :tabs] id)))))
 
 
+(defn add-tab-evt [{:keys [id tab]}]
+  (ptk/reify ::add-tab
+    ptk/UpdateEvent
+    (update [_ state]
+      (update-in state [:tabs id :items] conj tab))))
+
+
 (defn swap-tabs-evt [id from to]
   (ptk/reify ::swap-tabs
     ptk/UpdateEvent
     (update [_ state]
       (let [tabs     (get-in state [:tabs id :items])
-            from-idx (index-of {:title from} tabs)
-            to-idx   (index-of {:title to} tabs)
+            from-idx (utils/index-of {:id from} tabs)
+            to-idx   (utils/index-of {:id to} tabs)
             from-tab (get tabs from-idx)
-            tabs     (remove-nth from-idx tabs)
-            tabs     (insert-nth to-idx from-tab tabs)]
+            tabs     (utils/remove-nth from-idx tabs)
+            tabs     (utils/insert-nth to-idx from-tab tabs)]
         (assoc-in state [:tabs id :items] tabs)))))
 
 
 (mf/defc tab
-  [{:keys [tabs-id title type active move-tab
+  [{:keys [tabs-id tab-id title type active move-tab
            dragging? set-dragging dragged-over? set-drag-over]}]
   (let [current-tab-el (mf/use-ref)
-        tab-close      (mf/use-callback (partial close-tab-click tabs-id title))
-        tab-select     (mf/use-callback #(emit! (select-tab-evt tabs-id title)))
-        on-drag-over   (mf/use-callback #(jsi/call % :preventDefault))
+        tab-close      (mf/use-callback (partial close-tab-click {:tabs-id tabs-id :tab tab-id}))
+        tab-select     (mf/use-callback #(emit! (select-tab-evt {:id tabs-id :tab tab-id})))
+        on-drag-over   (mf/use-callback #(j/call % :preventDefault))
         on-drop        (fn [event]
-                         (jsi/call event :stopPropagation)
-                         (let [item (jsi/call-in event [:dataTransfer :getData] "text/plain")]
+                         (j/call event :stopPropagation)
+                         (let [item (j/call-in event [:dataTransfer :getData] "text/plain")]
                            (move-tab item)))
         on-drag-start  (mf/use-callback (fn [event]
-                                          (jsi/call-in event [:dataTransfer :setData] "text/plain" title)
-                                          (jsi/assoc-in! event [:dataTransfer :effectAllowed] "move")
-                                          (set-dragging title)))
+                                          (j/call-in event [:dataTransfer :setData] "text/plain" tab-id)
+                                          (j/assoc-in! event [:dataTransfer :effectAllowed] "move")
+                                          (set-dragging tab-id)))
         on-drag-end    (mf/use-callback #(do (set-dragging nil) (set-drag-over nil)))
-        on-drag-enter  (mf/use-callback #(set-drag-over title))
+        on-drag-enter  (mf/use-callback #(set-drag-over tab-id))
         on-drag-leave  (mf/use-callback (fn [event]
-                                          (let [target  (jsi/get event :target)
-                                                current (jsi/get current-tab-el :current)]
+                                          (let [target  (j/get event :target)
+                                                current (j/get current-tab-el :current)]
                                             (when-not (ancestor? target current)
                                               (set-drag-over nil)))))
         tab-color      (cond
@@ -132,8 +107,7 @@
         title-color    (if active (:snow2 colors) (:snow0 colors))
         opacity        (if dragging? 0.2 1)
         no-icon        (= type :no-icon)]
-    [:> box {:key              title
-             :ref              current-tab-el
+    [:> box {:ref              current-tab-el
              :class            (when active "active")
              :flex-basis       60
              :width            200
@@ -187,6 +161,10 @@
       [:& icon {:type :x}]]]))
 
 
+(def ^:const tabs-height
+  32)
+
+
 (mf/defc tabs [{:keys [tabs-id]}]
   (let [{:keys [items active]} (mf/deref (subscribe [:tabs tabs-id]))
         tabs-el          (mf/use-ref)
@@ -200,16 +178,18 @@
                :display          "flex"
                :overflow-x       "scroll"
                :class            "no-scroll"
-               :height           32
+               :height           tabs-height
                :background-color (:polar1 colors)}
-       (for [{:keys [title type]} items]
-         [:& tab {:title         title
+       (for [{:keys [id title type]} items]
+         [:& tab {:key           id
+                  :tab-id        id
+                  :title         title
                   :tabs-id       tabs-id
                   :type          type
                   :move-tab      move-tab
-                  :active        (= title active)
-                  :dragging?     (= title @dragged-tab)
+                  :active        (= id active)
+                  :dragging?     (= id @dragged-tab)
                   :set-dragging  set-dragging
-                  :dragged-over? (= title @dragged-over-tab)
+                  :dragged-over? (= id @dragged-over-tab)
                   :set-drag-over set-drag-over}])])))
 

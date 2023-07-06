@@ -4,7 +4,8 @@
    [applied-science.js-interop :as j]
    ["ui-box" :default box]
    [dreef.layout :refer [layout-manager]]
-   [dreef.styles :refer [colors]]))
+   [dreef.styles :refer [colors]]
+   [dreef.app :as app]))
 
 
 (mf/defc app []
@@ -26,4 +27,5 @@
 
 
 (defn ^:export start []
-  (mount))
+  (mount)
+  (app/initialize))

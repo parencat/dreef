@@ -2,7 +2,14 @@
 
 
 
-## Developing
+## Frontend
+
+```shell
+npm run watch
+```
+
+
+## Backend
 
 ### Setup
 

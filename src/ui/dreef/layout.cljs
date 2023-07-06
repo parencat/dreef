@@ -5,8 +5,8 @@
    [beicon.core :as rx]
    [applied-science.js-interop :as j]
    [dreef.state :refer [subscribe emit! get-next-id]]
+   [dreef.views :refer [view]]
    [dreef.styles :refer [colors]]
-   [dreef.editor-tool :refer [editor]]
    [dreef.utils :refer [assoc-some]]
    ["ui-box" :default box]))
 
@@ -347,18 +347,6 @@
       (handle-remove-pane state pane-id))))
 
 
-(defn add-view-evt [{:keys [view-id component tabs]
-                     :or       {view-id (get-next-id)}}]
-  (ptk/reify ::add-view
-    ptk/UpdateEvent
-    (update [_ state]
-      (-> state
-          (assoc-in [:view view-id]
-                    {:id        view-id
-                     :component component
-                     :tabs      tabs})))))
-
-
 (mf/defc gutter [{:keys [gutter-type] :as gutter-props}]
   (let [vertical?   (vertical? gutter-type)
         horizontal? (not vertical?)]
@@ -386,14 +374,6 @@
                               :transform       (if vertical?
                                                  "translateX(-50%)"
                                                  "translateY(-50%)")}}}]))
-
-
-(mf/defc view [{:keys [view-id]}]
-  (let [{view-component :component :keys [tabs]} (mf/deref (subscribe [:view view-id]))]
-    (case view-component
-      :editor [:& editor {:view-id view-id
-                          :tabs-id tabs}]
-      nil)))
 
 
 (mf/defc pane [{:keys [pane-id]}]
@@ -449,13 +429,8 @@
 
     (mf/use-layout-effect
      (fn []
-       (let [element-rect (j/call-in el-ref [:current :getBoundingClientRect])
-             width        (j/get element-rect :width)
-             height       (j/get element-rect :height)
-             left         (j/get element-rect :left)
-             right        (j/get element-rect :right)
-             top          (j/get element-rect :top)
-             bottom       (j/get element-rect :bottom)]
+       (j/let [element-rect (j/call-in el-ref [:current :getBoundingClientRect])
+               ^:js {:keys [width height left right top bottom]} element-rect]
          ;; weird thing if state update happens in between the render cycles components wouldn't react on it
          (emit! (calculate-full-layout-evt {:width width :height height :left left :right right :top top :bottom bottom}))
          (swap! ready? true))))
@@ -465,76 +440,3 @@
              :display "flex"}
      (when @ready?
        [:& pane-group {:group-id :root}])]))
-
-
-
-(comment
- (def gr
-   {:id       10
-    :type     :horizontal
-    :parent   :root
-    :children [{:pane 5} {:pane-group 11}]})
-
- (def pn
-   {:id   4
-    :view 31})
-
- (def vw
-   {:id        31
-    :component :editor})
-
- (emit! (add-pane-group-evt
-         {:type   :horizontal
-          :parent :root}))
-
- (emit! (add-pane-evt
-         {:view   nil
-          :parent 2}))
-
- (emit! (add-pane-group-evt
-         {:type   :vertical
-          :parent 2}))
-
- (emit! (add-pane-group-evt
-         {:type   :horizontal
-          :parent 1}))
-
- (emit! (add-pane-evt
-         {:view   nil
-          :parent 4}))
-
- (emit! (set-group-items-dimensions-evt
-         {:group-id        :root
-          :item-type       :pane-group
-          :item-id         1
-          :gutter-position 300}))
-
- (emit! (remove-pane-group-evt 1))
-
- (emit! (remove-pane-evt 3))
-
- (swap! dreef.state/state update-in [:pane 3] assoc :view 20)
- (swap! dreef.state/state update-in [:view 20] assoc :id 20 :component :editor)
-
- (require '[dreef.tabs])
-
- (let [view-id  (get-next-id)
-       tabs-id  (get-next-id)
-       group-id (get-next-id)]
-   (emit!
-    (add-pane-group-evt {:type :horizontal
-                         :parent   :root})
-    (add-pane-group-evt {:type :horizontal
-                         :group-id group-id
-                         :parent   :root})
-    (add-view-evt {:view-id view-id
-                   :component   :editor
-                   :tabs        tabs-id})
-    (dreef.tabs/add-tabs-evt {:id  tabs-id
-                              :tabs    [{:title "MyAwesomeThing3" :type :no-icon}
-                                        {:title "MyAwesomeThing4"}
-                                        {:title "MyAwesomeThing5"}
-                                        {:title "MyAwesomeThing6"}]
-                              :view-id view-id})
-    (add-pane-evt {:view view-id
-                   :parent   group-id}))))
