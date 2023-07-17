@@ -261,9 +261,9 @@
   (ptk/reify ::add-editor
     ptk/UpdateEvent
     (update [_ state]
-      (->> state
-           (assoc-in [:editor id] {:id id :script script-id})
-           (assoc :active-editor id)))))
+      (-> state
+          (assoc-in [:editor id] {:id id :script script-id})
+          (assoc :active-editor id)))))
 
 
 (defn update-editor-evt [{:keys [id script]}]
@@ -274,39 +274,50 @@
 
 
 (defn save-script-state [script-id state]
-  (emit! (script/save-script-state-evt
-          {:script-id script-id
-           :state     (j/call state :toJSON)})))
+  (emit! (script/update-script-evt
+          {:id    script-id
+           :state (j/call state :toJSON)})))
 
 
-(mf/defc editor [{:keys [id]}]
+(defn save-script-doc [script-id doc]
+  (emit! (script/update-script-evt
+          {:id  script-id
+           :doc doc})))
+
+
+(mf/defc codemirror [{script-id :id script-text :text script-state :state}]
   (let [container-ref (mf/use-ref)
-        editor-state  (mf/use-state)
-
-        {script-id :id :as script}
-        (mf/deref (subscribe
-                   #(->> (get-in % [:editor id :script])
-                         (vector :script)
-                         (get-in %))))]
-
+        on-update     (mf/use-callback
+                       (mf/deps script-id)
+                       #(j/call-in EditorView [:updateListener :of]
+                                   (fn [view]
+                                     (let [doc (j/call-in view [:state :doc :toString])]
+                                       (save-script-doc script-id doc)))))]
     (mf/use-effect
      (mf/deps script-id)
      (fn []
-       (let [container    (j/get container-ref :current)
-             script-state (:state script)
-             state        (if (some? script-state)
-                            (j/call EditorState :fromJSON script-state)
-                            (j/call EditorState :create
-                                    #js {:doc        (or (:text script) "")
-                                         :extensions extensions}))
-             editor       (new EditorView #js {:state  state
-                                               :parent container})]
-         (reset! editor-state state)
+       (let [container           (j/get container-ref :current)
+             script-state        script-state
+             editor-state-config #js {:doc        (or script-text "")
+                                      :extensions (j/call extensions :concat #js [(on-update)])}
+             state               (if (some? script-state)
+                                   (j/call EditorState :fromJSON script-state editor-state-config)
+                                   (j/call EditorState :create editor-state-config))
+             editor              (new EditorView #js {:state  state
+                                                      :parent container})]
          (fn editor-unmount []
-           (save-script-state script-id state)
+           (save-script-state script-id (j/get editor :state))
            (j/call editor :destroy)))))
 
-    [:> box {:ref        container-ref
-             :min-height "100%"}]))
+    [:> box {:ref              container-ref
+             :min-height       "100%"
+             :background-color (:polar1 colors)}]))
 
 
+(mf/defc editor [{:keys [id]}]
+  (let [script (mf/deref (subscribe
+                          #(->> (get-in % [:editor id :script])
+                                (vector :script)
+                                (get-in %))))]
+    (when (some? script)
+      [:& codemirror script])))

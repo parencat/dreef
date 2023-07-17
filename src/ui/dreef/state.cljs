@@ -61,3 +61,7 @@
                (map? selector) [(map-selector selector) =]
                :else [selector =])]
      (ol/derived selector-fn parent-state compare-fn))))
+
+
+(comment
+ @state)

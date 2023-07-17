@@ -36,7 +36,7 @@
                                    :editor (add-editor-evt
                                             {:id component-id}))]
           (rx/from (cond-> [add-view-component]
-                     tabs (conj add-tabs))))))))
+                           tabs (conj add-tabs))))))))
 
 
 (mf/defc view [{:keys [view-id]}]
@@ -46,8 +46,9 @@
         (mf/deref (subscribe [:view view-id]))
 
         tabs? (some? tabs-id)]
-    [:> box {:position "relative"
-             :height   "100%"}
+    [:> box {:data-view view-id
+             :position  "relative"
+             :height    "100%"}
      (when tabs?
        [:& tabs {:tabs-id tabs-id}])
 

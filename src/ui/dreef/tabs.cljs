@@ -18,11 +18,11 @@
         :otherwise false))))
 
 
-(defn select-tab-evt [{:keys [id tab]}]
+(defn select-tab-evt [{:keys [id tab-id]}]
   (ptk/reify ::select-tab
     ptk/UpdateEvent
     (update [_ state]
-      (assoc-in state [:tabs id :active] tab))))
+      (assoc-in state [:tabs id :active] tab-id))))
 
 
 (defn close-tab-evt [{:keys [id tab]}]
@@ -58,11 +58,29 @@
           (assoc-in [:view view-id :tabs] id)))))
 
 
-(defn add-tab-evt [{:keys [id tab]}]
-  (ptk/reify ::add-tab
+(defn add-new-tab-evt [{:keys [id tab-id]}]
+  (ptk/reify ::add-new-tab
     ptk/UpdateEvent
     (update [_ state]
-      (update-in state [:tabs id :items] conj tab))))
+      (let [tab {:id     tab-id
+                 :title  "Untitled"
+                 :status :new}]
+        (update-in state [:tabs id :items] conj tab)))))
+
+
+(defn update-tab-evt [{:keys [id tab-id title status]}]
+  (ptk/reify ::update-tab
+    ptk/UpdateEvent
+    (update [_ state]
+      (let [items   (get-in state [:tabs id :items])
+            tab-idx (utils/index-of {:id tab-id} items)
+            items   (utils/update-nth
+                     tab-idx
+                     #(utils/assoc-some %
+                        :status status
+                        :title title)
+                     items)]
+        (assoc-in state [:tabs id :items] items)))))
 
 
 (defn swap-tabs-evt [id from to]
@@ -79,7 +97,7 @@
 
 
 (mf/defc tab
-  [{:keys [tabs-id tab-id title type active move-tab
+  [{:keys [tabs-id tab-id tab-status title type active move-tab
            dragging? set-dragging dragged-over? set-drag-over]}]
   (let [current-tab-el (mf/use-ref)
         tab-close      (mf/use-callback (partial close-tab-click {:tabs-id tabs-id :tab tab-id}))
@@ -104,7 +122,15 @@
                          dragged-over? (:polar4 colors)
                          active (:polar2 colors)
                          :otherwise (:polar1 colors))
-        title-color    (if active (:snow2 colors) (:snow0 colors))
+
+        title-color    (cond
+                         (or (= tab-status :changed)
+                             (= tab-status :new))
+                         (:aurora2 colors)
+
+                         active (:snow2 colors)
+                         :otherwise (:snow0 colors))
+
         opacity        (if dragging? 0.2 1)
         no-icon        (= type :no-icon)]
     [:> box {:ref              current-tab-el
@@ -161,7 +187,7 @@
       [:& icon {:type :x}]]]))
 
 
-(def ^:const tabs-height
+(def tabs-height
   32)
 
 
@@ -180,11 +206,12 @@
                :class            "no-scroll"
                :height           tabs-height
                :background-color (:polar1 colors)}
-       (for [{:keys [id title type]} items]
+       (for [{:keys [id title type status]} items]
          [:& tab {:key           id
                   :tab-id        id
                   :title         title
                   :tabs-id       tabs-id
+                  :tab-status    status
                   :type          type
                   :move-tab      move-tab
                   :active        (= id active)
